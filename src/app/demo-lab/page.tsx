@@ -1,7 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { getConnectorStatusCopy } from "@/connectors/theone";
+import {
+  getConnectorStatusCopy,
+  getPublicTheOneConnectorConfig,
+} from "@/connectors/theone";
+import { salesDemoScripts, type SalesDemoScript } from "@/lib/demoScripts";
+import {
+  downloadTextFile,
+  exportRunAsJson,
+  exportRunAsMarkdown,
+} from "@/lib/export";
 import { useEffect, useMemo, useReducer, useState } from "react";
 import {
   businessProfiles,
@@ -18,6 +27,11 @@ import {
 } from "@/lib/simulation/demoLab";
 import { projectDemoSession } from "@/lib/simulation/engine";
 import { generateSimulationRun } from "@/lib/simulation/generator";
+import {
+  buildInjectionPreview,
+  getPreviewCapabilitiesForMode,
+  type InjectionPreview,
+} from "@/lib/simulation/injection";
 import { calculateImpactSummary } from "@/lib/simulation/impact";
 import {
   createInitialPlaybackState,
@@ -89,8 +103,16 @@ export default function DemoLabPage() {
     getDefaultDemoLabFormState(),
   );
   const [preview, setPreview] = useState<DemoLabPreview | null>(null);
+  const [injectionPreview, setInjectionPreview] =
+    useState<InjectionPreview | null>(null);
   const [recentRuns, setRecentRuns] = useState<SimulationRun[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [selectedScriptId, setSelectedScriptId] = useState(
+    salesDemoScripts[0]?.id ?? "",
+  );
+  const [activeScript, setActiveScript] = useState<SalesDemoScript | null>(
+    null,
+  );
   const [activeTimelineFilter, setActiveTimelineFilter] =
     useState<TimelineFilter>("all");
   const [playbackState, dispatchPlayback] = useReducer(
@@ -98,7 +120,8 @@ export default function DemoLabPage() {
     createInitialPlaybackState(),
   );
   const fixtureSession = demoSessions[0];
-  const connectorStatus = getConnectorStatusCopy();
+  const connectorConfig = getPublicTheOneConnectorConfig();
+  const connectorStatus = getConnectorStatusCopy(connectorConfig);
   const selectedProfile = useMemo(
     () => businessProfiles.find((profile) => profile.slug === form.profileSlug),
     [form.profileSlug],
@@ -108,6 +131,29 @@ export default function DemoLabPage() {
       scenarioPresets.find((scenario) => scenario.slug === form.scenarioSlug),
     [form.scenarioSlug],
   );
+
+  const selectedScript = useMemo(
+    () =>
+      salesDemoScripts.find((script) => script.id === selectedScriptId) ?? null,
+    [selectedScriptId],
+  );
+
+  const loadSelectedScript = () => {
+    if (!selectedScript) {
+      return;
+    }
+
+    setForm((current) => ({
+      ...current,
+      appointmentsPerDay: String(selectedScript.suggestedAppointmentsPerDay),
+      intensity: selectedScript.suggestedIntensity,
+      profileSlug: selectedScript.recommendedProfileSlug,
+      scenarioSlug: selectedScript.recommendedScenarioSlug,
+      seed: selectedScript.suggestedSeed,
+      simulatedDays: String(selectedScript.suggestedSimulatedDays),
+    }));
+    setActiveScript(selectedScript);
+  };
 
   const updateForm = (field: keyof DemoLabFormState, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
@@ -125,6 +171,7 @@ export default function DemoLabPage() {
 
   const openRunPreview = (run: SimulationRun, revealAll = true) => {
     setPreview(buildDemoLabPreviewFromRun(run));
+    setInjectionPreview(null);
     dispatchPlayback({ totalEvents: run.events.length, type: "initialize" });
     if (revealAll) {
       dispatchPlayback({ type: "show_full_preview" });
@@ -139,6 +186,7 @@ export default function DemoLabPage() {
 
     if (preview?.run.runId === runId) {
       setPreview(null);
+      setInjectionPreview(null);
       dispatchPlayback({ totalEvents: 0, type: "initialize" });
     }
   };
@@ -296,6 +344,37 @@ export default function DemoLabPage() {
     return () => window.clearInterval(timerId);
   }, [playbackState.speed, playbackState.status]);
 
+  const handleExport = (format: "json" | "markdown") => {
+    if (!preview || !visibleImpactSummary) {
+      return;
+    }
+
+    const filenameBase = `${preview.run.runId}-demo-pack`;
+    if (format === "json") {
+      downloadTextFile(`${filenameBase}.json`, exportRunAsJson(preview.run));
+      return;
+    }
+
+    downloadTextFile(
+      `${filenameBase}.md`,
+      exportRunAsMarkdown(preview.run, visibleImpactSummary, activeScript),
+    );
+  };
+
+  const handlePrepareInjectionPreview = () => {
+    if (!preview) {
+      return;
+    }
+
+    setInjectionPreview(
+      buildInjectionPreview({
+        capabilities: getPreviewCapabilitiesForMode(connectorConfig.mode),
+        runId: preview.run.runId,
+        targetDemoTenant: "Mock demo tenant placeholder",
+      }),
+    );
+  };
+
   const handleGenerate = () => {
     const result = generateDemoLabPreview(form);
 
@@ -306,6 +385,7 @@ export default function DemoLabPage() {
     }
 
     setPreview(result.preview);
+    setInjectionPreview(null);
     saveSimulationRun(result.preview.run);
     refreshRecentRuns();
     dispatchPlayback({
@@ -350,6 +430,36 @@ export default function DemoLabPage() {
               <span className="rounded-full border border-line bg-white/60 px-3 py-1 text-xs font-semibold text-muted">
                 No live writes
               </span>
+            </div>
+
+            <div className="mt-5 rounded-[1.25rem] border border-line bg-white/55 p-4">
+              <div className="section-eyebrow">Sales script</div>
+              <select
+                value={selectedScriptId}
+                onChange={(event) => setSelectedScriptId(event.target.value)}
+                className="mt-3 w-full rounded-[1rem] border border-line bg-white/70 px-3 py-3 text-sm text-stone-900 outline-none focus:border-accent"
+              >
+                {salesDemoScripts.map((script) => (
+                  <option key={script.id} value={script.id}>
+                    {script.title}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={loadSelectedScript}
+                className="mt-3 rounded-full bg-accent px-4 py-2 text-xs font-semibold text-white"
+              >
+                Load script
+              </button>
+              {activeScript ? (
+                <div className="mt-4 text-sm leading-7 text-stone-700">
+                  <div className="font-semibold text-stone-900">
+                    {activeScript.title}
+                  </div>
+                  <p className="mt-2 text-muted">{activeScript.painPoint}</p>
+                </div>
+              ) : null}
             </div>
 
             <div className="mt-5 grid gap-4">
@@ -723,6 +833,147 @@ export default function DemoLabPage() {
                       </div>
                     </div>
                   ))}
+                </div>
+              </div>
+            ) : null}
+
+            {preview ? (
+              <div className="mt-5 rounded-[1.5rem] border border-line bg-white/55 p-4">
+                <div className="section-eyebrow">Export demo pack</div>
+                <h3 className="mt-2 text-lg font-semibold text-stone-900">
+                  Shareable simulated summary
+                </h3>
+                <p className="mt-3 text-sm leading-7 text-muted">
+                  Export the generated run as JSON or a readable Markdown
+                  summary. No PDF is generated yet.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleExport("json")}
+                    className="rounded-full bg-accent px-4 py-2 text-xs font-semibold text-white"
+                  >
+                    Export demo pack JSON
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExport("markdown")}
+                    className="rounded-full border border-line bg-white/70 px-4 py-2 text-xs font-semibold text-stone-800"
+                  >
+                    Export Markdown summary
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {preview ? (
+              <div className="mt-5 rounded-[1.5rem] border border-line bg-white/55 p-4">
+                <div className="section-eyebrow">Injection Preview</div>
+                <h3 className="mt-2 text-lg font-semibold text-stone-900">
+                  Future demo data injection plan
+                </h3>
+                <p className="mt-3 text-sm leading-7 text-muted">
+                  This preview does not write data. It only describes what a
+                  future safe injection could prepare for a mock demo tenant.
+                </p>
+                <button
+                  type="button"
+                  onClick={handlePrepareInjectionPreview}
+                  className="mt-4 rounded-full bg-accent px-4 py-2 text-xs font-semibold text-white"
+                >
+                  Prepare injection preview
+                </button>
+
+                {injectionPreview ? (
+                  <div className="mt-4 space-y-4">
+                    <div className="rounded-[1rem] bg-accent-soft px-3 py-3 text-xs font-semibold leading-6 text-stone-800">
+                      {injectionPreview.copy.noWrite}
+                      <br />
+                      {injectionPreview.copy.appointmentsBlocked}
+                      <br />
+                      {injectionPreview.copy.staffBlocked}
+                    </div>
+                    <div className="text-sm leading-7 text-stone-700">
+                      <div>Run id: {injectionPreview.runId ?? "Missing"}</div>
+                      <div>Target: {injectionPreview.targetDemoTenant}</div>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                      <div className="rounded-[1rem] border border-line bg-white/60 p-3">
+                        <div className="text-xs uppercase tracking-[0.16em] text-muted">
+                          Supported entity plan
+                        </div>
+                        <ul className="mt-2 space-y-2 text-sm text-stone-800">
+                          {injectionPreview.supportedEntities.map((entity) => (
+                            <li key={entity.entity}>
+                              {entity.entity}: {entity.reason}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="rounded-[1rem] border border-line bg-white/60 p-3">
+                        <div className="text-xs uppercase tracking-[0.16em] text-muted">
+                          Unsupported entity plan
+                        </div>
+                        <ul className="mt-2 space-y-2 text-sm text-stone-800">
+                          {injectionPreview.unsupportedEntities.map(
+                            (entity) => (
+                              <li key={entity.entity}>
+                                {entity.entity}: {entity.reason}
+                              </li>
+                            ),
+                          )}
+                        </ul>
+                      </div>
+                    </div>
+                    <div className="rounded-[1rem] border border-line bg-white/60 p-3">
+                      <div className="text-xs uppercase tracking-[0.16em] text-muted">
+                        Safety checklist
+                      </div>
+                      <ul className="mt-2 space-y-2 text-sm text-stone-800">
+                        {injectionPreview.safetyChecks.map((check) => (
+                          <li key={check.id}>
+                            {check.passed ? "✓" : "Blocked"} · {check.label}:{" "}
+                            {check.detail}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {activeScript ? (
+              <div className="mt-5 rounded-[1.5rem] border border-line bg-white/55 p-4">
+                <div className="section-eyebrow">Talk Track</div>
+                <h3 className="mt-2 text-lg font-semibold text-stone-900">
+                  {activeScript.title}
+                </h3>
+                <div className="mt-4 space-y-4 text-sm leading-7 text-stone-700">
+                  <div>
+                    <div className="font-semibold text-stone-900">
+                      Story beats
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      {activeScript.storyBeats.map((beat) => (
+                        <li key={beat}>{beat}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="font-semibold text-stone-900">
+                      Talking points
+                    </div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5">
+                      {activeScript.talkingPoints.map((point) => (
+                        <li key={point}>{point}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div className="rounded-[1rem] bg-accent-soft p-3 text-xs font-semibold text-stone-800">
+                    Simulated/demo outputs only. Do not present these highlights
+                    as production performance.
+                  </div>
                 </div>
               </div>
             ) : null}
