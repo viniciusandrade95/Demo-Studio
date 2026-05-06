@@ -1,4 +1,8 @@
 import { assertNever } from "@/lib/assertNever";
+import {
+  mapEventToTimelineItem,
+  type TimelineItem,
+} from "@/lib/simulation/timeline";
 import type {
   DemoBookingStatus,
   DemoEvent,
@@ -8,13 +12,7 @@ import type {
   SimulationEventCategory,
 } from "@/lib/simulation/types";
 
-type SessionTimelineItem = {
-  id: string;
-  at: string;
-  label: string;
-  detail: string;
-  lane: "messages" | "bookings" | "kpi" | "operations" | "summary" | "warning";
-};
+type SessionTimelineItem = TimelineItem;
 
 export type DemoSessionProjection = {
   session: DemoSession;
@@ -140,90 +138,7 @@ export function getDemoEventCategory(
 }
 
 function toTimelineItem(event: DemoEvent): SessionTimelineItem {
-  switch (event.kind) {
-    case "customer_created":
-      return {
-        id: event.id,
-        at: event.at,
-        label: `${event.customerName} added`,
-        detail: `New simulated customer from ${event.source}`,
-        lane: "operations",
-      };
-    case "customer_message":
-      return {
-        id: event.id,
-        at: event.at,
-        label: `${event.customerName} wrote in`,
-        detail: event.message,
-        lane: "messages",
-      };
-    case "assistant_reply":
-      return {
-        id: event.id,
-        at: event.at,
-        label: `Assistant replied to ${event.customerName}`,
-        detail: event.message,
-        lane: "messages",
-      };
-    case "booking_created":
-      return {
-        id: event.id,
-        at: event.at,
-        label: `${event.customerName} booking ${event.status}`,
-        detail: `${event.serviceName} at ${event.scheduledFor}`,
-        lane: "bookings",
-      };
-    case "booking_updated":
-      return {
-        id: event.id,
-        at: event.at,
-        label: `${event.customerName} booking ${event.status}`,
-        detail: `${event.serviceName} at ${event.scheduledFor}`,
-        lane: "bookings",
-      };
-    case "kpi_marker":
-      return {
-        id: event.id,
-        at: event.at,
-        label: event.label,
-        detail: event.value,
-        lane: "kpi",
-      };
-    case "simulation_started":
-      return {
-        id: event.id,
-        at: event.at,
-        label: "Simulation started",
-        detail: `${event.scenarioSlug} for ${event.profileSlug} in ${event.mode} mode`,
-        lane: "operations",
-      };
-    case "simulation_finished":
-      return {
-        id: event.id,
-        at: event.at,
-        label: "Simulation finished",
-        detail: `${event.summary} (${event.safetyStatus})`,
-        lane: "operations",
-      };
-    case "day_summary":
-      return {
-        id: event.id,
-        at: event.at,
-        label: event.headline,
-        detail: event.highlights.join(" • "),
-        lane: "summary",
-      };
-    case "warning_generated":
-      return {
-        id: event.id,
-        at: event.at,
-        label: event.title,
-        detail: event.message,
-        lane: "warning",
-      };
-    default:
-      return assertNever(event, "toTimelineItem");
-  }
+  return mapEventToTimelineItem(event);
 }
 
 export function projectDemoSession(

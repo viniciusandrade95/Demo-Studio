@@ -1,4 +1,5 @@
 import { projectDemoSession } from "@/lib/simulation/engine";
+import { groupTimelineByDay } from "@/lib/simulation/timeline";
 import {
   businessProfiles,
   getBusinessProfileBySlug,
@@ -30,6 +31,7 @@ export type DemoLabSummaryCard = {
 export type DemoLabPreview = {
   run: SimulationRun;
   timeline: ReturnType<typeof projectDemoSession>["timeline"];
+  timelineGroups: ReturnType<typeof groupTimelineByDay>;
   summaryCards: DemoLabSummaryCard[];
 };
 
@@ -135,12 +137,14 @@ export function generateDemoLabPreview(
 
   const run = generateSimulationRun(request);
   const projection = projectDemoSession(run.session);
+  const timelineGroups = groupTimelineByDay(run.events);
 
   return {
     ok: true,
     preview: {
       run,
       timeline: projection.timeline,
+      timelineGroups,
       summaryCards: buildDemoLabSummaryCards(run),
     },
   };

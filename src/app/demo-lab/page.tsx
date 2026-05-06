@@ -13,7 +13,37 @@ import {
   type DemoLabFormState,
   type DemoLabPreview,
 } from "@/lib/simulation/demoLab";
+import type { TimelineCategory } from "@/lib/simulation/timeline";
 import type { SimulationIntensity } from "@/lib/simulation/types";
+
+type TimelineFilter = "all" | TimelineCategory | "kpi-system";
+
+type TimelineFilterOption = {
+  label: string;
+  value: TimelineFilter;
+};
+
+const timelineFilters: TimelineFilterOption[] = [
+  { label: "All", value: "all" },
+  { label: "Messages", value: "messages" },
+  { label: "Customers", value: "customers" },
+  { label: "Bookings", value: "bookings" },
+  { label: "Appointments", value: "appointments" },
+  { label: "Disruptions", value: "disruptions" },
+  { label: "Summaries", value: "summaries" },
+  { label: "KPI/System", value: "kpi-system" },
+];
+
+const categoryLabels: Record<TimelineCategory, string> = {
+  messages: "Messages",
+  customers: "Customers",
+  bookings: "Bookings",
+  appointments: "Appointments",
+  disruptions: "Disruptions",
+  summaries: "Summaries",
+  system: "System",
+  kpi: "KPI",
+};
 
 const intensityOptions: SimulationIntensity[] = ["low", "medium", "high"];
 
@@ -23,6 +53,8 @@ export default function DemoLabPage() {
   );
   const [preview, setPreview] = useState<DemoLabPreview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [activeTimelineFilter, setActiveTimelineFilter] =
+    useState<TimelineFilter>("all");
   const fixtureSession = demoSessions[0];
   const selectedProfile = useMemo(
     () => businessProfiles.find((profile) => profile.slug === form.profileSlug),
@@ -37,6 +69,34 @@ export default function DemoLabPage() {
   const updateForm = (field: keyof DemoLabFormState, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
   };
+
+  const filteredTimelineGroups = useMemo(() => {
+    if (!preview) {
+      return [];
+    }
+
+    return preview.timelineGroups
+      .map((group) => ({
+        ...group,
+        items: group.items.filter((item) => {
+          if (activeTimelineFilter === "all") {
+            return true;
+          }
+
+          if (activeTimelineFilter === "kpi-system") {
+            return item.category === "kpi" || item.category === "system";
+          }
+
+          return item.category === activeTimelineFilter;
+        }),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [activeTimelineFilter, preview]);
+
+  const filteredTimelineCount = filteredTimelineGroups.reduce(
+    (total, group) => total + group.items.length,
+    0,
+  );
 
   const handleGenerate = () => {
     const result = generateDemoLabPreview(form);
@@ -249,35 +309,72 @@ export default function DemoLabPage() {
                 </p>
               </div>
             ) : (
-              <div className="mt-5 space-y-3">
+              <div className="mt-5 space-y-4">
                 <div className="rounded-[1.25rem] bg-accent-soft px-4 py-3 text-sm font-semibold text-stone-800">
                   {preview.run.simulatedLabel}
                 </div>
-                <div className="max-h-[46rem] space-y-3 overflow-auto pr-1">
-                  {preview.timeline.map((item) => (
-                    <article
-                      key={item.id}
-                      className="rounded-[1.25rem] border border-line bg-white/60 px-4 py-4"
+
+                <div className="flex flex-wrap gap-2">
+                  {timelineFilters.map((filter) => (
+                    <button
+                      key={filter.value}
+                      type="button"
+                      onClick={() => setActiveTimelineFilter(filter.value)}
+                      className={`rounded-full border px-3 py-2 text-xs font-semibold transition ${
+                        activeTimelineFilter === filter.value
+                          ? "border-accent bg-accent text-white"
+                          : "border-line bg-white/60 text-stone-700 hover:bg-white"
+                      }`}
                     >
-                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                          <div className="text-sm font-semibold text-stone-900">
-                            {item.label}
-                          </div>
-                          <div className="mt-1 text-xs uppercase tracking-[0.18em] text-muted">
-                            {item.lane}
-                          </div>
-                        </div>
-                        <time className="font-mono text-xs text-muted">
-                          {item.at}
-                        </time>
-                      </div>
-                      <p className="mt-3 text-sm leading-7 text-stone-700">
-                        {item.detail}
-                      </p>
-                    </article>
+                      {filter.label}
+                    </button>
                   ))}
                 </div>
+
+                {filteredTimelineCount === 0 ? (
+                  <div className="rounded-[1.5rem] border border-dashed border-line bg-white/35 px-5 py-10 text-center text-sm leading-7 text-muted">
+                    No timeline moments match this filter.
+                  </div>
+                ) : (
+                  <div className="max-h-[46rem] space-y-5 overflow-auto pr-1">
+                    {filteredTimelineGroups.map((group) => (
+                      <section key={group.date} className="space-y-3">
+                        <div className="flex items-center justify-between gap-3 rounded-full border border-line bg-white/50 px-4 py-2">
+                          <h3 className="text-sm font-semibold text-stone-900">
+                            {group.label}
+                          </h3>
+                          <span className="font-mono text-xs text-muted">
+                            {group.date}
+                          </span>
+                        </div>
+
+                        {group.items.map((item) => (
+                          <article
+                            key={item.id}
+                            className="rounded-[1.25rem] border border-line bg-white/60 px-4 py-4"
+                          >
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <div className="text-sm font-semibold text-stone-900">
+                                  {item.label}
+                                </div>
+                                <div className="mt-2 inline-flex rounded-full bg-accent-soft px-3 py-1 text-xs font-semibold text-stone-800">
+                                  {categoryLabels[item.category]}
+                                </div>
+                              </div>
+                              <time className="font-mono text-xs text-muted">
+                                {item.time}
+                              </time>
+                            </div>
+                            <p className="mt-3 text-sm leading-7 text-stone-700">
+                              {item.detail}
+                            </p>
+                          </article>
+                        ))}
+                      </section>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </section>
