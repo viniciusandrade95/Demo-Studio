@@ -47,6 +47,18 @@ const categoryLabels: Record<TimelineCategory, string> = {
 
 const intensityOptions: SimulationIntensity[] = ["low", "medium", "high"];
 
+function formatEstimatedCurrency(value: number) {
+  return new Intl.NumberFormat("en", {
+    currency: "EUR",
+    maximumFractionDigits: 0,
+    style: "currency",
+  }).format(value);
+}
+
+function formatEstimatedMinutes(value: number) {
+  return `${value} min`;
+}
+
 export default function DemoLabPage() {
   const [form, setForm] = useState<DemoLabFormState>(() =>
     getDefaultDemoLabFormState(),
@@ -97,6 +109,55 @@ export default function DemoLabPage() {
     (total, group) => total + group.items.length,
     0,
   );
+
+  const impactCards = preview
+    ? [
+        {
+          label: "Estimated revenue",
+          value: formatEstimatedCurrency(
+            preview.impactSummary.estimatedRevenue,
+          ),
+        },
+        {
+          label: "Messages handled",
+          value: preview.impactSummary.messagesHandled.toString(),
+        },
+        {
+          label: "Assistant replies",
+          value: preview.impactSummary.assistantReplies.toString(),
+        },
+        {
+          label: "Manual replies saved",
+          value: preview.impactSummary.manualRepliesSaved.toString(),
+        },
+        {
+          label: "Manual work saved",
+          value: formatEstimatedMinutes(
+            preview.impactSummary.manualWorkSavedMinutes,
+          ),
+        },
+        {
+          label: "Bookings converted",
+          value: preview.impactSummary.bookingsConverted.toString(),
+        },
+        {
+          label: "Disruptions",
+          value: preview.impactSummary.disruptionCount.toString(),
+        },
+        {
+          label: "Occupancy estimate",
+          value: `${preview.impactSummary.occupancyEstimate}%`,
+        },
+        {
+          label: "New customers",
+          value: preview.impactSummary.newCustomers.toString(),
+        },
+        {
+          label: "Cancel/no-show pressure",
+          value: preview.impactSummary.cancelledNoShowPressure.toString(),
+        },
+      ]
+    : [];
 
   const handleGenerate = () => {
     const result = generateDemoLabPreview(form);
@@ -414,6 +475,37 @@ export default function DemoLabPage() {
                 </div>
               ))}
             </div>
+
+            {preview ? (
+              <div className="mt-5 rounded-[1.5rem] border border-line bg-white/55 p-4">
+                <div className="section-eyebrow">Business impact</div>
+                <h3 className="mt-2 text-lg font-semibold text-stone-900">
+                  Simulated commercial impact
+                </h3>
+                <p className="mt-3 text-sm leading-7 text-muted">
+                  This preview estimates how the business would look during a
+                  demo scenario. It is simulated data, not production activity.
+                </p>
+                <div className="mt-4 rounded-[1rem] bg-accent-soft px-3 py-3 text-xs font-semibold leading-6 text-stone-800">
+                  {preview.impactSummary.simulatedLabel}
+                </div>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                  {impactCards.map((card) => (
+                    <div
+                      key={card.label}
+                      className="rounded-[1rem] border border-line bg-white/60 px-3 py-3"
+                    >
+                      <div className="text-xs uppercase tracking-[0.16em] text-muted">
+                        {card.label}
+                      </div>
+                      <div className="mt-2 text-2xl font-semibold text-stone-900">
+                        {card.value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="mt-5 rounded-[1.25rem] border border-line bg-white/55 p-4 text-sm leading-7 text-stone-700">
               <div className="font-semibold text-stone-900">Fixture access</div>

@@ -7,6 +7,10 @@ import {
   scenarioPresets,
 } from "@/lib/simulation/fixtures";
 import { generateSimulationRun } from "@/lib/simulation/generator";
+import {
+  calculateImpactSummary,
+  type ImpactSummary,
+} from "@/lib/simulation/impact";
 import type {
   SimulationIntensity,
   SimulationRequest,
@@ -33,6 +37,7 @@ export type DemoLabPreview = {
   timeline: ReturnType<typeof projectDemoSession>["timeline"];
   timelineGroups: ReturnType<typeof groupTimelineByDay>;
   summaryCards: DemoLabSummaryCard[];
+  impactSummary: ImpactSummary;
 };
 
 export type DemoLabPreviewResult =
@@ -138,6 +143,7 @@ export function generateDemoLabPreview(
   const run = generateSimulationRun(request);
   const projection = projectDemoSession(run.session);
   const timelineGroups = groupTimelineByDay(run.events);
+  const impactSummary = calculateImpactSummary(run);
 
   return {
     ok: true,
@@ -146,6 +152,7 @@ export function generateDemoLabPreview(
       timeline: projection.timeline,
       timelineGroups,
       summaryCards: buildDemoLabSummaryCards(run),
+      impactSummary,
     },
   };
 }
