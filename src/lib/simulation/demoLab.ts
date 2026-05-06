@@ -131,6 +131,20 @@ export function buildSimulationRequestFromDemoLabForm(
   };
 }
 
+export function buildDemoLabPreviewFromRun(run: SimulationRun): DemoLabPreview {
+  const projection = projectDemoSession(run.session);
+  const timelineGroups = groupTimelineByDay(run.events);
+  const impactSummary = calculateImpactSummary(run);
+
+  return {
+    run,
+    timeline: projection.timeline,
+    timelineGroups,
+    summaryCards: buildDemoLabSummaryCards(run),
+    impactSummary,
+  };
+}
+
 export function generateDemoLabPreview(
   form: DemoLabFormState,
 ): DemoLabPreviewResult {
@@ -140,19 +154,8 @@ export function generateDemoLabPreview(
     return { ok: false, error: request };
   }
 
-  const run = generateSimulationRun(request);
-  const projection = projectDemoSession(run.session);
-  const timelineGroups = groupTimelineByDay(run.events);
-  const impactSummary = calculateImpactSummary(run);
-
   return {
     ok: true,
-    preview: {
-      run,
-      timeline: projection.timeline,
-      timelineGroups,
-      summaryCards: buildDemoLabSummaryCards(run),
-      impactSummary,
-    },
+    preview: buildDemoLabPreviewFromRun(generateSimulationRun(request)),
   };
 }

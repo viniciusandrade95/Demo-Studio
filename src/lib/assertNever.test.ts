@@ -18,6 +18,7 @@ describe("getEnvConfig", () => {
       appName: "Marqo Demo Studio",
       useLocalSimulationOnly: true,
       connectorBaseUrl: null,
+      connectorMode: "disabled",
     });
   });
 });

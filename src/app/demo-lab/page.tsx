@@ -1,20 +1,45 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { getConnectorStatusCopy } from "@/connectors/theone";
+import { useEffect, useMemo, useReducer, useState } from "react";
 import {
   businessProfiles,
   demoSessions,
   scenarioPresets,
 } from "@/lib/simulation/fixtures";
 import {
+  buildDemoLabPreviewFromRun,
   generateDemoLabPreview,
   getDefaultDemoLabFormState,
   type DemoLabFormState,
   type DemoLabPreview,
+  buildDemoLabSummaryCards,
 } from "@/lib/simulation/demoLab";
-import type { TimelineCategory } from "@/lib/simulation/timeline";
-import type { SimulationIntensity } from "@/lib/simulation/types";
+import { projectDemoSession } from "@/lib/simulation/engine";
+import { generateSimulationRun } from "@/lib/simulation/generator";
+import { calculateImpactSummary } from "@/lib/simulation/impact";
+import {
+  createInitialPlaybackState,
+  getPlaybackIntervalMs,
+  getRevealedEvents,
+  playbackSpeeds,
+  simulationPlaybackReducer,
+  type PlaybackSpeed,
+} from "@/lib/simulation/playback";
+import {
+  deleteSimulationRun,
+  listSimulationRuns,
+  saveSimulationRun,
+} from "@/lib/simulation/storage";
+import {
+  groupTimelineByDay,
+  type TimelineCategory,
+} from "@/lib/simulation/timeline";
+import type {
+  SimulationIntensity,
+  SimulationRun,
+} from "@/lib/simulation/types";
 
 type TimelineFilter = "all" | TimelineCategory | "kpi-system";
 
@@ -64,10 +89,16 @@ export default function DemoLabPage() {
     getDefaultDemoLabFormState(),
   );
   const [preview, setPreview] = useState<DemoLabPreview | null>(null);
+  const [recentRuns, setRecentRuns] = useState<SimulationRun[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [activeTimelineFilter, setActiveTimelineFilter] =
     useState<TimelineFilter>("all");
+  const [playbackState, dispatchPlayback] = useReducer(
+    simulationPlaybackReducer,
+    createInitialPlaybackState(),
+  );
   const fixtureSession = demoSessions[0];
+  const connectorStatus = getConnectorStatusCopy();
   const selectedProfile = useMemo(
     () => businessProfiles.find((profile) => profile.slug === form.profileSlug),
     [form.profileSlug],
@@ -82,12 +113,102 @@ export default function DemoLabPage() {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
+  const refreshRecentRuns = () => {
+    setRecentRuns(listSimulationRuns());
+  };
+
+  useEffect(() => {
+    const timerId = window.setTimeout(refreshRecentRuns, 0);
+
+    return () => window.clearTimeout(timerId);
+  }, []);
+
+  const openRunPreview = (run: SimulationRun, revealAll = true) => {
+    setPreview(buildDemoLabPreviewFromRun(run));
+    dispatchPlayback({ totalEvents: run.events.length, type: "initialize" });
+    if (revealAll) {
+      dispatchPlayback({ type: "show_full_preview" });
+    }
+    setActiveTimelineFilter("all");
+    setError(null);
+  };
+
+  const handleDeleteRun = (runId: string) => {
+    deleteSimulationRun(runId);
+    refreshRecentRuns();
+
+    if (preview?.run.runId === runId) {
+      setPreview(null);
+      dispatchPlayback({ totalEvents: 0, type: "initialize" });
+    }
+  };
+
+  const handleRerun = (run: SimulationRun) => {
+    const nextRun = generateSimulationRun({
+      ...run.request,
+      seed: `${run.request.seed}-copy`,
+    });
+    saveSimulationRun(nextRun);
+    refreshRecentRuns();
+    openRunPreview(nextRun);
+  };
+
+  const revealedEvents = useMemo(() => {
+    if (!preview) {
+      return [];
+    }
+
+    return getRevealedEvents(preview.run.events, playbackState);
+  }, [playbackState, preview]);
+
+  const visibleTimelineGroups = useMemo(
+    () => groupTimelineByDay(revealedEvents),
+    [revealedEvents],
+  );
+
+  const visibleSummaryCards = useMemo(() => {
+    if (!preview) {
+      return null;
+    }
+
+    const partialSession = {
+      ...preview.run.session,
+      events: revealedEvents,
+    };
+    const partialProjection = projectDemoSession(partialSession);
+
+    return buildDemoLabSummaryCards({
+      ...preview.run,
+      events: revealedEvents,
+      session: partialSession,
+      summary: {
+        ...preview.run.summary,
+        eventCounts: {
+          ...preview.run.summary.eventCounts,
+          customer_created: revealedEvents.filter(
+            (event) => event.kind === "customer_created",
+          ).length,
+        },
+        metrics: partialProjection.metrics,
+        totalEvents: revealedEvents.length,
+      },
+    });
+  }, [preview, revealedEvents]);
+
+  const visibleImpactSummary = useMemo(() => {
+    if (!preview) {
+      return null;
+    }
+
+    return calculateImpactSummary(revealedEvents);
+  }, [preview, revealedEvents]);
+
   const filteredTimelineGroups = useMemo(() => {
     if (!preview) {
       return [];
     }
 
-    return preview.timelineGroups
+    return visibleTimelineGroups
       .map((group) => ({
         ...group,
         items: group.items.filter((item) => {
@@ -103,61 +224,77 @@ export default function DemoLabPage() {
         }),
       }))
       .filter((group) => group.items.length > 0);
-  }, [activeTimelineFilter, preview]);
+  }, [activeTimelineFilter, preview, visibleTimelineGroups]);
 
   const filteredTimelineCount = filteredTimelineGroups.reduce(
     (total, group) => total + group.items.length,
     0,
   );
 
-  const impactCards = preview
+  const impactCards = visibleImpactSummary
     ? [
         {
           label: "Estimated revenue",
-          value: formatEstimatedCurrency(
-            preview.impactSummary.estimatedRevenue,
-          ),
+          value: formatEstimatedCurrency(visibleImpactSummary.estimatedRevenue),
         },
         {
           label: "Messages handled",
-          value: preview.impactSummary.messagesHandled.toString(),
+          value: visibleImpactSummary.messagesHandled.toString(),
         },
         {
           label: "Assistant replies",
-          value: preview.impactSummary.assistantReplies.toString(),
+          value: visibleImpactSummary.assistantReplies.toString(),
         },
         {
           label: "Manual replies saved",
-          value: preview.impactSummary.manualRepliesSaved.toString(),
+          value: visibleImpactSummary.manualRepliesSaved.toString(),
         },
         {
           label: "Manual work saved",
           value: formatEstimatedMinutes(
-            preview.impactSummary.manualWorkSavedMinutes,
+            visibleImpactSummary.manualWorkSavedMinutes,
           ),
         },
         {
           label: "Bookings converted",
-          value: preview.impactSummary.bookingsConverted.toString(),
+          value: visibleImpactSummary.bookingsConverted.toString(),
         },
         {
           label: "Disruptions",
-          value: preview.impactSummary.disruptionCount.toString(),
+          value: visibleImpactSummary.disruptionCount.toString(),
         },
         {
           label: "Occupancy estimate",
-          value: `${preview.impactSummary.occupancyEstimate}%`,
+          value: `${visibleImpactSummary.occupancyEstimate}%`,
         },
         {
           label: "New customers",
-          value: preview.impactSummary.newCustomers.toString(),
+          value: visibleImpactSummary.newCustomers.toString(),
         },
         {
           label: "Cancel/no-show pressure",
-          value: preview.impactSummary.cancelledNoShowPressure.toString(),
+          value: visibleImpactSummary.cancelledNoShowPressure.toString(),
         },
       ]
     : [];
+
+  useEffect(() => {
+    if (playbackState.status !== "playing") {
+      return;
+    }
+
+    const intervalMs = getPlaybackIntervalMs(playbackState.speed);
+    if (intervalMs === null) {
+      dispatchPlayback({ type: "show_full_preview" });
+      return;
+    }
+
+    const timerId = window.setInterval(() => {
+      dispatchPlayback({ type: "tick" });
+    }, intervalMs);
+
+    return () => window.clearInterval(timerId);
+  }, [playbackState.speed, playbackState.status]);
 
   const handleGenerate = () => {
     const result = generateDemoLabPreview(form);
@@ -169,6 +306,13 @@ export default function DemoLabPage() {
     }
 
     setPreview(result.preview);
+    saveSimulationRun(result.preview.run);
+    refreshRecentRuns();
+    dispatchPlayback({
+      totalEvents: result.preview.run.events.length,
+      type: "initialize",
+    });
+    setActiveTimelineFilter("all");
     setError(null);
   };
 
@@ -340,6 +484,17 @@ export default function DemoLabPage() {
                 Local generation only · no storage · no live injection
               </div>
             </div>
+
+            <div className="mt-4 rounded-[1.25rem] border border-line bg-white/55 p-4 text-sm leading-7 text-stone-700">
+              <div className="section-eyebrow">{connectorStatus.eyebrow}</div>
+              <div className="mt-2 font-semibold text-stone-900">
+                {connectorStatus.title}
+              </div>
+              <p className="mt-2 text-muted">{connectorStatus.description}</p>
+              <div className="mt-3 rounded-full bg-accent-soft px-3 py-2 text-xs font-semibold text-stone-800">
+                Local mode remains the source of truth for this demo.
+              </div>
+            </div>
           </aside>
 
           <section className="glass-panel rounded-[2rem] px-5 py-5">
@@ -356,6 +511,69 @@ export default function DemoLabPage() {
                 </div>
               ) : null}
             </div>
+
+            {preview ? (
+              <div className="mt-4 rounded-[1.5rem] border border-line bg-white/45 p-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => dispatchPlayback({ type: "play" })}
+                    className="rounded-full bg-accent px-4 py-2 text-xs font-semibold text-white transition hover:opacity-90"
+                  >
+                    Play
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => dispatchPlayback({ type: "pause" })}
+                    className="rounded-full border border-line bg-white/70 px-4 py-2 text-xs font-semibold text-stone-800 transition hover:bg-white"
+                  >
+                    Pause
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => dispatchPlayback({ type: "restart" })}
+                    className="rounded-full border border-line bg-white/70 px-4 py-2 text-xs font-semibold text-stone-800 transition hover:bg-white"
+                  >
+                    Restart
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      dispatchPlayback({ type: "show_full_preview" })
+                    }
+                    className="rounded-full border border-line bg-white/70 px-4 py-2 text-xs font-semibold text-stone-800 transition hover:bg-white"
+                  >
+                    Show full preview
+                  </button>
+                  <label className="ml-auto flex items-center gap-2 text-xs font-semibold text-muted">
+                    Speed
+                    <select
+                      value={playbackState.speed}
+                      onChange={(event) =>
+                        dispatchPlayback({
+                          speed: event.target.value as PlaybackSpeed,
+                          type: "set_speed",
+                        })
+                      }
+                      className="rounded-full border border-line bg-white/70 px-3 py-2 text-xs font-semibold text-stone-800 outline-none focus:border-accent"
+                    >
+                      {playbackSpeeds.map((speed) => (
+                        <option key={speed} value={speed}>
+                          {speed}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted">
+                  <span>Status: {playbackState.status}</span>
+                  <span>
+                    Revealed: {playbackState.revealedCount} /{" "}
+                    {playbackState.totalEvents}
+                  </span>
+                </div>
+              </div>
+            ) : null}
 
             {!preview ? (
               <div className="mt-5 flex min-h-[28rem] flex-col items-center justify-center rounded-[1.5rem] border border-dashed border-line bg-white/35 px-6 py-12 text-center">
@@ -394,7 +612,9 @@ export default function DemoLabPage() {
 
                 {filteredTimelineCount === 0 ? (
                   <div className="rounded-[1.5rem] border border-dashed border-line bg-white/35 px-5 py-10 text-center text-sm leading-7 text-muted">
-                    No timeline moments match this filter.
+                    {revealedEvents.length === 0
+                      ? "No moments revealed yet. Press Play or Show full preview."
+                      : "No timeline moments match this filter."}
                   </div>
                 ) : (
                   <div className="max-h-[46rem] space-y-5 overflow-auto pr-1">
@@ -452,7 +672,7 @@ export default function DemoLabPage() {
 
             <div className="mt-5 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
               {(
-                preview?.summaryCards ?? [
+                visibleSummaryCards ?? [
                   { label: "Customers", value: 0 },
                   { label: "Inbound messages", value: 0 },
                   { label: "Assistant replies", value: 0 },
@@ -487,7 +707,7 @@ export default function DemoLabPage() {
                   demo scenario. It is simulated data, not production activity.
                 </p>
                 <div className="mt-4 rounded-[1rem] bg-accent-soft px-3 py-3 text-xs font-semibold leading-6 text-stone-800">
-                  {preview.impactSummary.simulatedLabel}
+                  {visibleImpactSummary?.simulatedLabel}
                 </div>
                 <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                   {impactCards.map((card) => (
@@ -506,6 +726,63 @@ export default function DemoLabPage() {
                 </div>
               </div>
             ) : null}
+
+            <div className="mt-5 rounded-[1.5rem] border border-line bg-white/55 p-4">
+              <div className="section-eyebrow">Recent local runs</div>
+              <p className="mt-3 text-sm leading-7 text-muted">
+                Stored only in this browser localStorage. No secrets, external
+                API, or production data are used.
+              </p>
+              <div className="mt-4 space-y-3">
+                {recentRuns.length === 0 ? (
+                  <div className="rounded-[1rem] border border-dashed border-line bg-white/40 px-3 py-4 text-sm leading-7 text-muted">
+                    No local runs saved yet. Generate a preview to keep it in
+                    this browser.
+                  </div>
+                ) : (
+                  recentRuns.map((run) => (
+                    <div
+                      key={run.runId}
+                      className="rounded-[1rem] border border-line bg-white/60 px-3 py-3"
+                    >
+                      <div className="font-mono text-xs text-muted">
+                        {run.runId}
+                      </div>
+                      <div className="mt-2 text-sm font-semibold text-stone-900">
+                        {run.session.title}
+                      </div>
+                      <div className="mt-1 text-xs leading-6 text-muted">
+                        {run.request.profileSlug} · {run.request.scenarioSlug} ·
+                        seed {run.request.seed}
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => openRunPreview(run)}
+                          className="rounded-full bg-accent px-3 py-2 text-xs font-semibold text-white"
+                        >
+                          Reopen
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleRerun(run)}
+                          className="rounded-full border border-line bg-white/70 px-3 py-2 text-xs font-semibold text-stone-800"
+                        >
+                          Duplicate
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteRun(run.runId)}
+                          className="rounded-full border border-line bg-white/70 px-3 py-2 text-xs font-semibold text-warn"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
 
             <div className="mt-5 rounded-[1.25rem] border border-line bg-white/55 p-4 text-sm leading-7 text-stone-700">
               <div className="font-semibold text-stone-900">Fixture access</div>
