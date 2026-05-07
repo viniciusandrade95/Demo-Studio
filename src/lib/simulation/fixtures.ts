@@ -1,4 +1,110 @@
-import type { DemoSession } from "@/lib/simulation/types";
+import type {
+  BusinessProfile,
+  DemoSession,
+  ScenarioPreset,
+} from "@/lib/simulation/types";
+
+export const businessProfiles: BusinessProfile[] = [
+  {
+    slug: "beauty_salon",
+    name: "Atelier Lumina Beauty",
+    vertical: "beauty_salon",
+    city: "Lisbon",
+    timezone: "Europe/Lisbon",
+    services: ["Blowout", "Color consultation", "Facial treatment"],
+    tone: "premium",
+    simulatedLabel: "Simulated beauty salon profile for demo storytelling.",
+  },
+  {
+    slug: "barbershop",
+    name: "Marqo Demo Barbers",
+    vertical: "barbershop",
+    city: "Lisbon",
+    timezone: "Europe/Lisbon",
+    services: ["Haircut", "Beard Trim", "Haircut + Beard"],
+    tone: "efficient",
+    simulatedLabel: "Simulated barbershop profile for demo storytelling.",
+  },
+  {
+    slug: "nail_studio",
+    name: "North Star Nails",
+    vertical: "nail_studio",
+    city: "Porto",
+    timezone: "Europe/Lisbon",
+    services: ["Gel manicure", "Nail art", "Pedicure"],
+    tone: "warm",
+    simulatedLabel: "Simulated nail studio profile for demo storytelling.",
+  },
+];
+
+export const scenarioPresets: ScenarioPreset[] = [
+  {
+    slug: "calm_week",
+    title: "Calm Week",
+    description:
+      "A steady week with enough demand to show reliable assistant handling without disruption.",
+    intensity: "calm",
+    commercialStory:
+      "Shows dependable conversion and tidy operator visibility.",
+    suggestedProfileSlugs: ["beauty_salon", "barbershop", "nail_studio"],
+    durationDays: 5,
+  },
+  {
+    slug: "busy_weekend",
+    title: "Busy Weekend",
+    description:
+      "Weekend demand rises while the assistant protects high-value slots.",
+    intensity: "busy",
+    commercialStory:
+      "Frames Marqo as a revenue capture layer during peak demand.",
+    suggestedProfileSlugs: ["barbershop", "nail_studio"],
+    durationDays: 3,
+  },
+  {
+    slug: "chaotic_day",
+    title: "Chaotic Day",
+    description:
+      "Same-day cancellations, late arrivals, and urgent customer questions arrive together.",
+    intensity: "chaotic",
+    commercialStory:
+      "Creates a crisp disruption story without claiming production activity.",
+    suggestedProfileSlugs: ["beauty_salon", "barbershop"],
+    durationDays: 1,
+  },
+  {
+    slug: "new_business",
+    title: "New Business",
+    description:
+      "A young business builds its first customer rhythm and needs clear follow-up.",
+    intensity: "calm",
+    commercialStory:
+      "Highlights setup speed, pipeline visibility, and safe simulated onboarding.",
+    suggestedProfileSlugs: ["nail_studio", "beauty_salon"],
+    durationDays: 7,
+  },
+  {
+    slug: "mature_business",
+    title: "Mature Business",
+    description:
+      "A booked-out operator needs prioritization, reschedules, and KPI clarity.",
+    intensity: "busy",
+    commercialStory:
+      "Shows control-room value for an established team with real operating pressure.",
+    suggestedProfileSlugs: ["barbershop", "beauty_salon"],
+    durationDays: 7,
+  },
+  {
+    slug: "promo_campaign",
+    title: "Promo Campaign",
+    description:
+      "A limited promotion creates a burst of leads, replies, and booking movement.",
+    intensity: "busy",
+    commercialStory:
+      "Connects marketing activity to bookings and assistant-led response quality.",
+    suggestedProfileSlugs: ["beauty_salon", "nail_studio"],
+    durationDays: 4,
+  },
+];
 
 export const demoSessions: DemoSession[] = [
   {
@@ -11,6 +117,10 @@ export const demoSessions: DemoSession[] = [
     operatorSummary:
       "A weekday session designed for commercial demos: messages arrive, the assistant converts demand into bookings, and schedule friction creates realistic KPI movement.",
     simulatedLabel: "All activity in this session is simulated demo data.",
+    profileSlug: "barbershop",
+    scenarioSlug: "busy_weekend",
+    mode: "guided",
+    safetyStatus: "simulated_only",
     events: [
       {
         id: "evt-001",
@@ -136,6 +246,18 @@ export const demoSessions: DemoSession[] = [
     ],
   },
 ];
+
+export function getBusinessProfileBySlug(
+  slug: string,
+): BusinessProfile | undefined {
+  return businessProfiles.find((profile) => profile.slug === slug);
+}
+
+export function getScenarioPresetBySlug(
+  slug: string,
+): ScenarioPreset | undefined {
+  return scenarioPresets.find((scenario) => scenario.slug === slug);
+}
 
 export function getDemoSessionById(sessionId: string): DemoSession | undefined {
   return demoSessions.find((session) => session.id === sessionId);

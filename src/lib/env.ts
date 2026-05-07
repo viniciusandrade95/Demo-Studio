@@ -5,6 +5,7 @@ type EnvConfig = {
   appName: string;
   useLocalSimulationOnly: boolean;
   connectorBaseUrl: string | null;
+  connectorMode: "mock" | "disabled";
 };
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
@@ -39,5 +40,7 @@ export function getEnvConfig(env: EnvInput = process.env): EnvConfig {
       true,
     ),
     connectorBaseUrl: optionalTrimmed(env.NEXT_PUBLIC_CONNECTOR_BASE_URL),
+    connectorMode:
+      env.NEXT_PUBLIC_CONNECTOR_MODE === "mock" ? "mock" : "disabled",
   };
 }
